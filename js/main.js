@@ -57,11 +57,13 @@ async function initApp() {
   }
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer. MSAA & the render resolution (a share
-  //    of the CSS pixels) by quality tier (quality.js)
+  //    of the CSS pixels) by quality tier (quality.js). ?webgl=1 forces three's WebGL2 backend (same TSL, compiled to
+  //    GLSL), to compare the two
   const renderer = new THREE.WebGPURenderer({
     antialias: QUALITY.aa === 'msaa',
     powerPreference: 'high-performance',
-    reversedDepthBuffer: true
+    reversedDepthBuffer: true,
+    forceWebGL: new URLSearchParams(location.search).get('webgl') === '1'
   });
   renderer.setPixelRatio(QUALITY.scale);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -279,9 +281,19 @@ async function initApp() {
   // John's volumetric clouds (sky-clouds.js): marched through the scene depth, composited over the scene colour
   if (skyClouds) {
     skyClouds.attach(cameraSystem.camera, lightingSystem);
-    skyClouds.pass.sceneDepth = scenePassDepth;
+    if (skyClouds.pass) skyClouds.pass.sceneDepth = scenePassDepth;
   }
-  const colorGrade = createPostProcessing(renderer, skyClouds ? skyClouds.composite(scenePassColor) : scenePassColor, ssrReflections, {
+  // ?atmosphere=1 (sky-clouds.js): takram's sky & aerial perspective over the scene (its reflections included, so they
+  // haze with the surface they sit on), then the clouds over that, then the grade
+  let gradeInput = scenePassColor;
+  let gradeReflections = ssrReflections;
+  if (skyClouds && skyClouds.atmosphereEnabled) {
+    const { vec4 } = window.CITY.TSL;
+    const lit = ssrReflections ? vec4(scenePassColor.rgb.add(ssrReflections.rgb), scenePassColor.a) : scenePassColor;
+    gradeInput = skyClouds.aerial(lit, scenePassDepth);
+    gradeReflections = null;
+  }
+  const colorGrade = createPostProcessing(renderer, skyClouds ? skyClouds.composite(gradeInput) : gradeInput, gradeReflections, {
     bloom: QUALITY.bloom
   });
   const { bloomPass } = colorGrade;
