@@ -33,6 +33,7 @@ const { createTrafficSystem, createHighwayTraffic } = window.CITY;
 const { buildRoadPaint } = window.CITY;
 const { ThirdPersonControllerManager } = window.CITY;
 const { TouchControls } = window.CITY;
+const { GamepadControls } = window.CITY;
 const { CameraSystem, CAMERA_PRESETS } = window.CITY;
 const { LightingSystem } = window.CITY;
 const { CityMapSystem } = window.CITY;
@@ -99,6 +100,8 @@ async function initApp() {
   const lakeWater = window.CITY.setupLakeWater(scene, renderer, lightingSystem);
   markInit('cityGrid');
   const boroughs = buildTerrain(scene);
+  // Toronto layer: the rest of the city beyond the detailed one, on the terrain (surroundings.js)
+  window.CITY.buildSurroundings(scene, boroughs.group, QUALITY);
   markInit('terrain');
   const { colliders: landmarkColliders } = buildLandmarks(scene);
   markInit('landmarks');
@@ -128,11 +131,52 @@ async function initApp() {
   ]);
   markInit('traffic');
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
+  // --- Toronto layer (after aalghooneh/slop-toronto): the TTC's streetcars, which the traffic keeps behind ---
+  const streetcars = window.CITY.createStreetcars(scene, trafficSystem);
+  // the Union Station Rail Corridor's tracks & GO trains (rail-corridor.js)
+  const railCorridor = window.CITY.createRailCorridor(scene, trafficSystem);
+  // the streetcars' sounds (audio branch: reads streetcars.cars, safe before the audio exists)
+  if (window.CITY.Audio && window.CITY.Audio.addStreetcars) window.CITY.Audio.addStreetcars(streetcars);
+  markInit('streetcars');
+  // --- end Toronto layer ---
   buildRoadPaint(scene, trafficSystem.network);
   markInit('roadPaint');
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
+  // --- Restored visits (mrdoob's 9301fcb): every player (walker, car, bicycle, helicopter) comes back where it was left,
+  // at rest, placed by the teleport's clear-arrival search; first visits start on Yonge. The film (?film) neither
+  // restores nor saves (it parks the player for its shots)
+  const PLAYER_STATE_KEY = 'toronto-player-state';
+  const keepPlayerState = !new URLSearchParams(location.search).has('film');
+  let restoredPlayer = false;
+  if (keepPlayerState) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PLAYER_STATE_KEY));
+      if (saved?.version === 1) {
+        for (const mode of Object.keys(controllerManager.entities)) {
+          const p = saved.entities?.[mode];
+          if (!p || ![p.x, p.y, p.z, p.heading].every(Number.isFinite)) continue;
+          controllerManager.setMode(mode);
+          controllerManager.teleportActiveTo(p.x, p.z, p.heading, p.y);
+        }
+        controllerManager.setMode(Object.hasOwn(controllerManager.entities, saved.activeMode) ? saved.activeMode : 'cyclist');
+        restoredPlayer = true;
+      }
+    } catch { /* missing or unavailable storage does not prevent riding */ }
+  }
+  function savePlayerState() {
+    if (!keepPlayerState) return;
+    try {
+      const entities = Object.fromEntries(Object.entries(controllerManager.entities).map(([mode, entity]) => [mode, {
+        x: entity.position.x, y: entity.position.y, z: entity.position.z, heading: entity.heading
+      }]));
+      localStorage.setItem(PLAYER_STATE_KEY, JSON.stringify({ version: 1, activeMode: controllerManager.activeMode, entities }));
+    } catch { /* storage may be disabled or full */ }
+  }
+  window.addEventListener('pagehide', savePlayerState);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) savePlayerState(); });
+  // --- end restored visits
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   markInit('controllers');
@@ -153,17 +197,21 @@ async function initApp() {
   }
   markInit('culling');
 
-  // Small InstancedMeshes (<= 1000 instances) keep their matrices in uniform buffers that three.js
+  // On WebGPU, small InstancedMeshes (<= 1000 instances) keep their matrices in uniform buffers that three.js
   // re-uploads on every draw of every pass (~2.5 MB/frame with the shadow cascades, stalling the GPU queue).
-  // Storage attributes are only uploaded when instanceMatrix.needsUpdate is set.
-  scene.traverse((object) => {
-    if (object.isInstancedMesh) {
-      object.instanceMatrix = new THREE.StorageInstancedBufferAttribute(object.instanceMatrix.array, 16);
-    }
-  });
+  // Storage attributes are only uploaded when instanceMatrix.needsUpdate is set; the WebGL2 fallback needs ordinary
+  // instanced attributes for correct transforms (mrdoob's 2aad875)
+  if (renderer.backend.isWebGPUBackend) {
+    scene.traverse((object) => {
+      if (object.isInstancedMesh) {
+        object.instanceMatrix = new THREE.StorageInstancedBufferAttribute(object.instanceMatrix.array, 16);
+      }
+    });
+  }
 
   // 5. TSL RenderPipeline with Half-Res Screen Space Reflections (SSRNode), Bloom & Filmic Toning
-  //    SSR skips pixels with zero metalness, so fading it out with distance spares the far facades
+  //    SSR skips pixels with zero metalness, so fading it out with distance spares the far facades, and leaving out the
+  //    matte ones (roughness 0.75 and up) spends its rays on the visible glossy reflections (mrdoob's d837961)
   const scenePass = pass(scene, cameraSystem.camera);
   // The multisampled colour attachments (output, normal, metalRough) only need resolving, never storing: discarding
   // them spares the GPU writing 3 x 4 samples per pixel to memory every frame (transient, memoryless attachments where
@@ -173,10 +221,11 @@ async function initApp() {
   scenePass.renderTarget.storeMultisampledColorBuffer = !!lakeWater.water;
   // The phone tiers draw no SSR, so the scene pass writes its colour & depth alone (quality.js)
   const ssrFade = smoothstep(360.0, 180.0, positionView.z.negate());
+  const maxSSRRoughness = 0.75;
   const sceneMRT = QUALITY.ssr ? mrt({
     output: output,
     normal: normalView,
-    metalRough: vec2(metalness.mul(ssrFade), roughness)
+    metalRough: vec2(roughness.lessThan(maxSSRRoughness).select(metalness.mul(ssrFade), 0), roughness)
   }) : null;
   if (sceneMRT) {
     sceneMRT.setBlendMode('normal', new THREE.BlendMode(THREE.MaterialBlending));
@@ -194,21 +243,25 @@ async function initApp() {
   const scenePassDepth = scenePass.getTextureNode('depth');
 
   let ssrPass = null;
+  let ssrReflections = null;
   if (QUALITY.ssr) {
     const scenePassNormal = scenePass.getTextureNode('normal');
     const scenePassMetalRough = scenePass.getTextureNode('metalRough');
     ssrPass = ssr(scenePassColor, scenePassDepth, scenePassNormal, {
       metalnessNode: scenePassMetalRough.r,
       roughnessNode: scenePassMetalRough.g,
-      camera: cameraSystem.camera
+      camera: cameraSystem.camera,
+      binaryRefine: true // fewer coarse steps (quality 0.25), then each hit refined: precise reflection edges
     });
     ssrPass.resolutionScale = 0.5;
     ssrPass.blurQuality = 1;
     ssrPass.maxDistance.value = 42;
     ssrPass.thickness.value = 0.85;
-    ssrPass.quality.value = 0.35;
+    ssrPass.quality.value = 0.25;
     ssrPass.intensity.value = 0.50;
     ssrPass.screenEdgeFadeBlack = true;
+    // the roughness mip blur must not spread reflections back onto matte or non-reflective surfaces
+    ssrReflections = ssrPass.mul(scenePassMetalRough.r.greaterThan(0).select(smoothstep(maxSSRRoughness, 0.55, scenePassMetalRough.g), 0));
   }
 
   // John's volumetric clouds (sky-clouds.js): marched through the scene depth, composited over the scene colour
@@ -216,7 +269,7 @@ async function initApp() {
     skyClouds.attach(cameraSystem.camera, lightingSystem);
     skyClouds.pass.sceneDepth = scenePassDepth;
   }
-  const colorGrade = createPostProcessing(renderer, skyClouds ? skyClouds.composite(scenePassColor) : scenePassColor, ssrPass, {
+  const colorGrade = createPostProcessing(renderer, skyClouds ? skyClouds.composite(scenePassColor) : scenePassColor, ssrReflections, {
     bloom: QUALITY.bloom
   });
   const { bloomPass } = colorGrade;
@@ -245,16 +298,52 @@ async function initApp() {
   const elAltitude = document.getElementById('hud-altitude');
   const elLocation = document.getElementById('hud-location');
   const elControlsHint = document.getElementById('hud-controls-hint');
+  // --- Crash damage HUD (aalghooneh/slop-toronto 0557fbb): the car's condition bar & the wreck notice
+  const elHealth = document.getElementById('hud-health');
+  const elHealthMeter = document.getElementById('hud-health-meter');
+  const elWrecked = document.getElementById('hud-wrecked');
+  const elWreckedTime = document.getElementById('hud-wrecked-time');
+  let shownHealth = -1;
+  let shownWreck = -1;
+  function renderCarCondition() { // (DOM touched only on change)
+    const car = controllerManager.entities.car;
+    const health = Math.ceil(car.health);
+    if (health !== shownHealth && elHealthMeter) {
+      shownHealth = health;
+      elHealthMeter.style.transform = `scaleX(${health / 100})`;
+      elHealthMeter.classList.toggle('is-warn', health <= 60 && health > 25);
+      elHealthMeter.classList.toggle('is-bad', health <= 25);
+      if (elHealth) elHealth.setAttribute('aria-valuenow', String(health));
+    }
+    const wreck = controllerManager.activeMode === 'car' && car.wrecked > 0 ? Math.ceil(car.wrecked) : 0;
+    if (wreck !== shownWreck && elWrecked) {
+      shownWreck = wreck;
+      elWrecked.hidden = !wreck;
+      if (elWreckedTime) elWreckedTime.textContent = String(wreck);
+    }
+  }
+  // --- end crash damage HUD
+  // A gamepad drives too (gamepad-controls.js): its bumpers step the mode, Y the camera, Start the map
+  const gamepadControls = new GamepadControls(controllerManager, cameraSystem, {
+    onCycleMode: (step) => {
+      const modes = ['person', 'car', 'cyclist', 'helicopter'];
+      selectMode(modes[(modes.indexOf(controllerManager.activeMode) + step + modes.length) % modes.length]);
+    },
+    onCycleCamera: (step) => cycleCamera(step),
+    onToggleMap: () => mapSystem.toggleFullMap(!mapSystem.isFullMapOpen),
+    onCloseMap: () => mapSystem.toggleFullMap(false)
+  });
 
   // Keyboard guide for each mode: [keys, action]
   const controlHints = {
     person: [[['W', 'S'], 'Walk'], [['A', 'D'], 'Turn'], [['Shift'], 'Sprint'], [['Space'], 'Jump'], [['Drag'], 'Orbit']],
-    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['Shift'], 'Boost'], [['Drag'], 'Orbit']],
-    cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Shift'], 'Sprint'], [['Drag'], 'Orbit']],
+    car: [[['W', 'S'], 'Drive / Reverse'], [['A', 'D'], 'Steer'], [['Shift'], 'Floor it'], [['Space'], 'Handbrake'], [['B'], 'Horn'], [['Drag'], 'Orbit']],
+    cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Shift'], 'Sprint'], [['B'], 'Bell'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend'], [['Shift'], 'Boost']]
   };
-  // Boosted top speeds in km/h (controllers.js caps them at 8.2, 36, 19 & 52 m/s): full scale of the speed meter
-  const topSpeedKmh = { person: 30, car: 130, cyclist: 68, helicopter: 187 };
+  // Top speeds in km/h (controllers.js: 8.2, 19 & 52 m/s; the car runs out of power against the air near 230): full
+  // scale of the speed meter
+  const topSpeedKmh = { person: 30, car: 230, cyclist: 68, helicopter: 187 };
 
   function renderControlHints(mode) {
     if (!elControlsHint) return;
@@ -286,6 +375,7 @@ async function initApp() {
   function selectMode(mode) {
     controllerManager.setMode(mode);
     touchControls.setMode(controllerManager.activeMode);
+    gamepadControls.reset();
     modeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
     });
@@ -442,6 +532,7 @@ async function initApp() {
   function teleportTo(x, z, heading = Math.PI) {
     const destination = controllerManager.teleportActiveTo(x, z, heading);
     touchControls.reset();
+    gamepadControls.reset();
     cameraSystem.resetForTeleport();
     selectCamera('chase', true);
     return destination;
@@ -454,6 +545,7 @@ async function initApp() {
     onToggle: (open) => {
       controllerManager.resetInput();
       touchControls.setEnabled(!open);
+      gamepadControls.setEnabled(!open);
       const mapHint = document.getElementById('fullmap-hover-info');
       if (open && touchControls.available && mapHint) {
         mapHint.textContent = 'Tap a place for directions · Drag to pan · Pinch to zoom';
@@ -464,6 +556,9 @@ async function initApp() {
 
   // The tour guide: search, directions, navigation & Tour Drive (tour-guide.js)
   const tourGuide = createTourGuide({ scene, controllerManager, cameraSystem, mapSystem, trafficSystem, teleportTo, selectMode });
+
+  // The city's sound (audio-system.js): from the first click or key; [N] mutes, [B] horn / bike bell
+  const cityAudio = window.CITY.createCityAudio({ controllerManager, trafficSystem, highwayTraffic, streetDetails, cameraSystem, lightingSystem, mapSystem });
 
   // Help: every control at a glance ([?] / F1)
   const helpModal = document.getElementById('help-modal');
@@ -589,8 +684,8 @@ async function initApp() {
     }
   }
 
-  // Initialize default selection
-  selectMode('cyclist');
+  // Initialize default selection: the restored player's mode, else the bicycle
+  selectMode(restoredPlayer ? controllerManager.activeMode : 'cyclist');
   selectCamera('chase', true);
   selectTime('golden');
   // the web fonts change the buttons' widths once they arrive
@@ -615,8 +710,11 @@ async function initApp() {
     quadtree: cityBlocks.quadtree,
     trafficSystem,
     highwayTraffic,
+    streetcars, // Toronto layer
+    railCorridor, // Toronto layer
     controllerManager,
     touchControls,
+    gamepadControls,
     cameraSystem,
     lightingSystem,
     mapSystem,
@@ -653,15 +751,20 @@ async function initApp() {
     const culled = [];
     const jobs = [];
     const jobByMaterial = new Map();
+    const pipelines = new Set();
     scene.traverseVisible((o) => {
       if (o.frustumCulled) {
         culled.push(o);
         o.frustumCulled = false;
       }
       if (!o.isMesh && !o.isLine && !o.isPoints && !o.isSprite) return;
-      // chunks of one mesh share its pipeline (the first one compiles it) and the shadow stand-ins only ever draw in
-      // the shadow maps (the warm-up frame compiles those)
-      if (o.userData.sharesPipelineWith || o.userData.shadowProxy) return;
+      // chunks of one mesh share its pipeline: the first visible one compiles it (the first chunk itself may be
+      // hidden; mrdoob's 539289a); the shadow stand-ins only ever draw in the shadow maps (the warm-up frame compiles
+      // those)
+      if (o.userData.shadowProxy) return;
+      const pipeline = o.userData.sharesPipelineWith || o;
+      if (pipelines.has(pipeline)) return;
+      pipelines.add(pipeline);
       if (o.isInstancedMesh || Array.isArray(o.material)) {
         jobs.push([o]);
         return;
@@ -714,6 +817,7 @@ async function initApp() {
   let elapsed = 0;
   let frameCount = 0;
   let fpsTimer = 0;
+  let nextPlayerSave = 0;
   let warmedUp = false; // see the first frame below
 
   if (elFps) elFps.textContent = '60';
@@ -727,6 +831,7 @@ async function initApp() {
     elapsed += dt;
 
     // Update 3rd-person controllers, camera, signals, traffic & vehicle collisions, building LODs, and dynamic shadow focus
+    gamepadControls.update(dt);
     controllerManager.update(dt, elapsed);
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
@@ -739,6 +844,12 @@ async function initApp() {
       cameraSystem.camera
     );
     highwayTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
+    if (!document.hidden && now >= nextPlayerSave) {
+      savePlayerState();
+      nextPlayerSave = now + 5000;
+    }
+    streetcars.update(dt, elapsed, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode); // Toronto layer
+    railCorridor.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode); // Toronto layer
     cityBlocks.update(cameraSystem.currentPos.x, cameraSystem.currentPos.z);
     if (cityBlocks.updateLights) cityBlocks.updateLights(cameraSystem.camera);
     if (streetDetails.update) streetDetails.update(cameraSystem.camera);
@@ -748,6 +859,8 @@ async function initApp() {
     if (skyClouds) skyClouds.update(dt);
     mapSystem.update();
     tourGuide.update(dt, elapsed);
+    renderCarCondition();
+    cityAudio.update(dt, elapsed);
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
 
     // Render frame via TSL RenderPipeline (SSR + Bloom)

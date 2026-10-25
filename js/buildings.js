@@ -5,8 +5,8 @@
 // (L, T & U plans), as tall as mapped or estimated. Most of the city is one and two-storey houses & low blocks of
 // rendered, painted concrete behind compound walls, with hipped roofs of stone-coated steel or aluminium sheets; the
 // Central Business District and the Three Arms Zone rise higher, some in curtain-wall glass.
-// A quadtree streams the close-up detail around the camera: overhead water tanks on their stands, split air-
-// conditioner condensers on the walls and satellite dishes.
+// A quadtree streams the close-up detail around the camera: fire escapes, the odd air conditioner on a side wall and
+// satellite dish.
 
 const { THREE } = window.CITY;
 const { mergeGeometries } = window.CITY.Addons;
@@ -121,9 +121,20 @@ class CityQuadtree {
 }
 
 // Paint (sRGB hex, weight): walls, hipped roofs, curtain-wall glass
-const WALL_PAINT = [[0xeadfc6, 6], [0xf2eee6, 5], [0xd9c6a0, 5], [0xccb088, 4], [0xe5b996, 2], [0xe8d79c, 2], [0xcfccc4, 3],
-  [0xbf6f47, 1], [0xb9c7a8, 1], [0xb8c9d6, 1], [0x9c7458, 1]];
-const ROOF_PAINT = [[0x8f3524, 5], [0x5f1d22, 3], [0x2c2e31, 3], [0x2a4a72, 3], [0x35552f, 2], [0x5a3b28, 3], [0xa9adb0, 3], [0x7a2c22, 2]];
+// --- Toronto layer: the walls' colours measured from ~430 freely licensed photos of Toronto on Wikimedia Commons
+// (tools/commons-palette.py -> tools/data/commons_palette.json, every photo credited in tools/data/commons_photos.md;
+// after aalghooneh/slop-toronto, MIT), weighted by how often each turned up: red-brown, dark brown, orange-red
+// Victorian & buff ("white") brick. Brick buildings are flagged to the facade shader by paint.w >= 2 (tsl-materials.js)
+const TORONTO_MASONRY = [[0x7c6154, 37], [0x5a463f, 26], [0x9c7a62, 21], [0xae987e, 14], [0xc07e55, 2]];
+// rendered, painted & precast walls (the palette's pale concrete #9ca0a2, stucco & painted siding)
+const TORONTO_RENDER = [[0xcfccc4, 4], [0xe6e1d6, 3], [0x9ca0a2, 3], [0xb9b4aa, 2], [0xae987e, 1]];
+// stone for the churches (Credit Valley sandstone & grey limestone)
+const TORONTO_STONE = [[0xae987e, 3], [0x9c9a92, 2], [0x7d6f60, 1]];
+// share of each kind of building in brick: 0 houses, 1 low-rise, 2 mid-rise (its non-glass ones), 6 worship, 7 civic
+const BRICK_SHARE = { 0: 0.85, 1: 0.65, 2: 0.4, 6: 0.55, 7: 0.7 };
+// hipped roofs: asphalt shingles, charcoal, grey & brown (not Abuja's coloured steel)
+const ROOF_PAINT = [[0x3b3b3d, 5], [0x2c2d30, 4], [0x4e4035, 3], [0x6a6762, 2], [0x5a2f27, 1]];
+// --- end Toronto layer ---
 const SHEET_PAINT = [[0x9aa0a3, 3], [0x8a5a3c, 2], [0x6e7275, 2], [0x2f4f78, 1]]; // corrugated sheets: galvanised, rusted, painted
 const RAW_BLOCK = [[0xa29c90, 3], [0x8f897d, 2], [0xb3a993, 1]]; // unpainted sandcrete blockwork (huts, sheds)
 const weighted = (table, r) => {
@@ -244,9 +255,12 @@ function buildCityBlocks(scene) {
   const materials = [
     createRenderedFacadeMaterial({ windowWidth: 3.1, floorHeight: 3.4, windowRatioX: 0.44, windowRatioY: 0.48, seed: 13.0 }),
     createRenderedFacadeMaterial({ windowWidth: 2.4, floorHeight: 3.6, windowRatioX: 0.6, windowRatioY: 0.56, litProbability: 0.5, warmth: 0.6, seed: 29.0, cornerPier: 0.5 }),
-    createCurtainWallMaterial({ glassTint: 0x234c55, frameTint: 0x8c979c, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.55, reflectivity: 0.92, seed: 41.0, boxLocal: true }),
-    createCurtainWallMaterial({ glassTint: 0x3a2b20, frameTint: 0x4a3b2c, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.6, reflectivity: 0.9, seed: 57.0, boxLocal: true }),
-    createCurtainWallMaterial({ glassTint: 0x1f3550, frameTint: 0xb0bac4, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.5, reflectivity: 0.94, seed: 73.0, boxLocal: true })
+    // (Toronto layer: the Commons palette's glass, its hue & chroma kept at the darkness the glass shader expects, as
+    // aalghooneh/slop-toronto does: blue-grey condo glass with pale slab edges, the Financial District's dark teal-grey,
+    // newer grey-green condo glass with white spandrels)
+    createCurtainWallMaterial({ glassTint: 0x2a3744, frameTint: 0x9a9ea0, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.55, reflectivity: 0.92, seed: 41.0, boxLocal: true }),
+    createCurtainWallMaterial({ glassTint: 0x1e2326, frameTint: 0x3a3e40, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.6, reflectivity: 0.9, seed: 57.0, boxLocal: true }),
+    createCurtainWallMaterial({ glassTint: 0x3d4245, frameTint: 0xb4b8ba, windowWidth: 1.6, floorHeight: 3.8, litProbability: 0.5, warmth: 0.5, reflectivity: 0.94, seed: 73.0, boxLocal: true })
   ];
   const buckets = materials.map(() => []);
   const roofTiles = { pos: [], nor: [], uv: [], col: [] };
@@ -273,8 +287,11 @@ function buildCityBlocks(scene) {
     const shopFront = kind === 2 || (kind === 1 && rnd() < 0.25);
     const faces = [WALL_KINDS.rear, WALL_KINDS.rear, WALL_KINDS.rear, WALL_KINDS.rear];
     faces[front] = shopFront ? WALL_KINDS.shop : WALL_KINDS.entry;
-    const paintHex = kind === 4 ? weighted(RAW_BLOCK, rnd()) : kind === 5 ? 0x9b9890 : weighted(WALL_PAINT, rnd());
-    const paint = [...linear(paintHex), kind === 5 ? 0.95 : rnd()];
+    // (Toronto layer: brick or render by kind, colours from the Commons palette)
+    const brick = mat < 2 && rnd() < (BRICK_SHARE[kind] || 0);
+    const paintHex = kind === 4 ? weighted(RAW_BLOCK, rnd()) : kind === 5 ? 0x9b9890 : brick ? weighted(TORONTO_MASONRY, rnd())
+      : kind === 6 ? weighted(TORONTO_STONE, rnd()) : weighted(TORONTO_RENDER, rnd());
+    const paint = [...linear(paintHex), (kind === 5 ? 0.95 : rnd()) + (brick ? 2 : 0)];
     const tone = rnd();
     let topY = 0;
     for (const [u0, u1, v0, v1] of parts) {
@@ -305,23 +322,38 @@ function buildCityBlocks(scene) {
     // house), split-AC condensers on the side walls, a satellite dish
     const [u0, u1, v0, v1] = parts[0];
     const local = (u, v) => [cx + u * cs + v * sn, cz - u * sn + v * cs];
-    const detail = { cx, cz, tanks: [], acs: [], dishes: [], ry: ang };
-    if (kind <= 2 || kind === 6 || kind === 7) {
-      if (rnd() < 0.8) {
-        const tankCol = Math.floor(rnd() * 4);
-        if (roof === 0 && kind !== 3) {
-          const [tx, tz] = local(u0 + (u1 - u0) * (0.2 + rnd() * 0.6), v0 + (v1 - v0) * (0.2 + rnd() * 0.6));
-          detail.tanks.push({ x: tx, y: topY, z: tz, stand: 1.2 + rnd() * 1.2, col: tankCol });
-        } else if (roof === 1) {
-          // on a steel stand just off the house's back corner, as high as the eaves or a little higher
-          const back = front === 3 ? 2 : front === 2 ? 3 : front === 0 ? 1 : 0;
-          const off = 2.2;
-          const [tx, tz] = back < 2 ? local(back === 0 ? u0 - off : u1 + off, v0 + (v1 - v0) * 0.25) : local(u0 + (u1 - u0) * 0.25, back === 2 ? v0 - off : v1 + off);
-          detail.tanks.push({ x: tx, y: CITY_BOUNDS.sidewalkHeight, z: tz, stand: Math.max(3, topY - 0.5 + rnd() * 2), col: tankCol });
+    const detail = { cx, cz, tanks: [], acs: [], dishes: [], fireEscapes: [], ry: ang };
+    // --- Fire escapes (js/fire-escapes.js, mrdoob's 8c17250): on the older brick walk-ups and main-street blocks of
+    // 3 to 8 storeys, about two in five, on the rear wall (the lane side), never the street front; a landing per floor
+    // from the 2nd up, one escape per 15 m of wall
+    if ((kind === 1 || kind === 2) && mat < 2 && rnd() < 0.42) {
+      const storey = mat === 1 ? 3.6 : 3.4; // the facade's floor height (materials above)
+      const nf = Math.round(h / storey);
+      const back = front === 3 ? 2 : front === 2 ? 3 : front === 0 ? 1 : 0;
+      const lenOf = (f) => (f < 2 ? v1 - v0 : u1 - u0); // (walls of the main part, parts[0])
+      const wall = lenOf(back) >= 4.6 ? back : undefined; // (side walls are often party walls in a row)
+      if (nf >= 3 && nf <= 8 && wall !== undefined) {
+        const landings = Math.min(nf - 1, 7);
+        const count = lenOf(wall) >= 15 ? 2 : 1;
+        for (let k = 0; k < count; k++) {
+          const t = (k + 0.5) / count;
+          const [fx, fz] = wall < 2
+            ? local(wall === 0 ? u0 - 0.55 : u1 + 0.55, v0 + (v1 - v0) * t)
+            : local(u0 + (u1 - u0) * t, wall === 2 ? v0 - 0.55 : v1 + 0.55);
+          detail.fireEscapes.push({
+            x: fx, y: storey + 0.1, z: fz, h: (landings - 1) * storey + 1, storey, landings, ry: ang,
+            facing: [-Math.PI / 2, Math.PI / 2, Math.PI, 0][wall] // the module's +z faces out of the wall
+          });
         }
       }
-      // split-AC condensers: on the side walls (not the street front), at the upper floors
-      const n = kind === 0 ? 1 + Math.floor(rnd() * 2) : 2 + Math.floor(rnd() * 4);
+    }
+    // --- end fire escapes
+    if (kind <= 2 || kind === 6 || kind === 7) {
+      // (no overhead water tanks: they were Abuja's, polyethylene drums on stands; Toronto's buildings have none.
+      // John: "Toronto doesn't really have water towers")
+      // an air conditioner on a side wall (not the street front), at the upper floors: in Toronto a few, not Abuja's
+      // split units on every wall
+      const n = rnd() < 0.2 ? 1 : 0;
       for (let k = 0; k < n; k++) {
         const side = [0, 1, 2, 3].filter((f) => f !== front)[Math.floor(rnd() * 3)];
         const floors = Math.max(1, Math.round((topY - 0.6) / 3.4));
@@ -333,12 +365,12 @@ function buildCityBlocks(scene) {
         const [ax, az] = local(lu, lv);
         detail.acs.push({ x: ax, y, z: az, ry: ang + rot });
       }
-      if (rnd() < 0.55) {
+      if (rnd() < 0.05) { // the odd satellite dish
         const [dx, dz] = local(u0 + (u1 - u0) * (0.1 + rnd() * 0.8), v0 + (v1 - v0) * (0.1 + rnd() * 0.8));
         detail.dishes.push({ x: dx, y: topY + (roof === 1 ? 0.2 : 0), z: dz, ry: rnd() * Math.PI * 2 });
       }
     }
-    if (detail.tanks.length || detail.acs.length || detail.dishes.length) {
+    if (detail.tanks.length || detail.acs.length || detail.dishes.length || detail.fireEscapes.length) {
       quadtree.insert(detail);
       allBlocks.push(detail);
     }
@@ -436,6 +468,8 @@ function buildCityBlocks(scene) {
     m.count = 0;
     group.add(m);
   }
+  // Wrought-iron fire escapes: real stairs & landings near the camera, masked boxes further out (fire-escapes.js)
+  const fireEscapeSystem = window.CITY.createFireEscapes(group);
 
   let lastX = Infinity, lastZ = Infinity, activeCount = 0;
   const STREAM_RADIUS = 420;
@@ -453,7 +487,9 @@ function buildCityBlocks(scene) {
     near.sort((a, b) => (a.cx - fx) ** 2 + (a.cz - fz) ** 2 - ((b.cx - fx) ** 2 + (b.cz - fz) ** 2));
     activeCount = near.length;
     let nt = 0, na = 0, nd = 0;
+    fireEscapeSystem.begin();
     for (const d of near) {
+      for (const fe of d.fireEscapes || []) fireEscapeSystem.add(fe, fx, fz);
       for (const t of d.tanks) {
         if (nt >= MAX_TANKS) break;
         dummy.rotation.set(0, d.ry, 0);
@@ -493,6 +529,7 @@ function buildCityBlocks(scene) {
     if (tankInst.instanceColor) flagRange(tankInst.instanceColor, nt);
     flagRange(acInst.instanceMatrix, na);
     flagRange(dishInst.instanceMatrix, nd);
+    fireEscapeSystem.end();
   }
   update(0, 0, true);
 

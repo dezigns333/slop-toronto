@@ -32,7 +32,7 @@
   <script>
     // Download the city scripts while Three.js loads; execute them only after its imports are ready below.
     const cityAppScripts = (() => {
-      const assetVersion = '20261022-tour2';
+      const assetVersion = '20261024-maximal4';
       return [
         './js/quality.js',
         './js/toronto-geodata.js',
@@ -45,6 +45,8 @@
         './js/lighting.js',
         './js/city-grid.js',
         './js/terrain.js',
+        './js/fire-escapes.js',
+        './js/surroundings.js',
         './js/buildings.js',
         './js/toronto-landmarks.js',
         './js/landmarks.js',
@@ -55,9 +57,13 @@
         './js/ez-trees.js',
         './js/road-network.js',
         './js/road-paint.js',
+        './js/pedestrian-routes.js',
         './js/traffic.js',
+        './js/streetcars.js',
+        './js/rail-corridor.js',
         './js/controllers.js',
         './js/touch-controls.js',
+        './js/gamepad-controls.js',
         './js/cameras.js',
         './js/city-map.js',
         './js/navigation.js',
@@ -68,6 +74,12 @@
         './js/post-processing.js',
         './js/lake-water.js',
         './js/sky-clouds.js',
+        './js/audio-synthesis.js',
+        './js/audio-events.js',
+        './js/audio-toronto.js',
+        './js/audio-acoustics.js',
+        './js/audio-sources.js',
+        './js/audio-system.js',
         './js/main.js'
       ].map((src) => `${src}?v=${assetVersion}`);
     })();
@@ -83,7 +95,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@600;700&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261022-tour2" />
+  <link rel="stylesheet" href="./css/style.css?v=20261024-maximal4" />
   <!-- three.js dev branch pinned to commit e27dfa95ae (2026-10-23) via jsDelivr: mrdoob's engine needs dev (it crawls at 1 fps on the 0.186.1 release) -->
   <script type="importmap">
     {
@@ -112,6 +124,8 @@
       <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4.5 3.5 6.6v13l5.5-2.1 6 2.1 5.5-2.1v-13L15 6.6 9 4.5zM9 4.5v13M15 6.6v13"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
       <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3.5 3.5l17 17M10.6 5.6c.5-.1.9-.1 1.4-.1 6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.4 3.2M6.6 6.6A15.6 15.6 0 0 0 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3.1-.4 4.4-1.1M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2"/></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="m11 4-5 4H3v8h3l5 4V4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></symbol>
+      <symbol id="i-sound-off" viewBox="0 0 24 24"><path d="m11 4-5 4H3v8h3l5 4V4ZM16 9l6 6M22 9l-6 6"/></symbol>
       <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5"/></symbol>
       <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M14.5 6.5 9 12l5.5 5.5"/></symbol>
       <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></symbol>
@@ -375,6 +389,9 @@
         <svg class="icon" aria-hidden="true"><use href="#i-help"/></svg>
       </button>
       <span class="toolbar-divider" aria-hidden="true"></span>
+      <button id="btn-sound" class="tool-btn icon-only" type="button" title="Mute the sound [N]" aria-label="Mute sound" aria-pressed="true">
+        <svg class="icon" aria-hidden="true"><use href="#i-sound"/></svg>
+      </button>
       <button id="btn-toggle-hud" class="tool-btn icon-only" type="button" title="Clean view: hide the HUD [H]" aria-label="Hide HUD" aria-pressed="false">
         <svg class="icon icon-hide" aria-hidden="true"><use href="#i-eye"/></svg><svg class="icon icon-show" aria-hidden="true"><use href="#i-eye-off"/></svg>
       </button>
@@ -425,6 +442,12 @@
     </nav>
   </footer>
 
+  <!-- Center: the car's wreck notice while it waits to restart -->
+  <div id="hud-wrecked" class="wrecked" role="status" hidden>
+    <div class="wrecked-title">Wrecked</div>
+    <div class="wrecked-sub">Restarting in <span id="hud-wrecked-time">3</span>s</div>
+  </div>
+
   <!-- Bottom-Right: Speed Cluster & Camera Switcher -->
   <div class="hud hud-bottom-right">
     <section id="hud-cluster" class="panel cluster" aria-label="Vehicle telemetry and camera">
@@ -435,6 +458,11 @@
         </div>
         <div class="gauge-speed"><span id="hud-speed">0</span><span class="gauge-unit">km/h</span></div>
         <div class="gauge-meter" aria-hidden="true"><span id="hud-speed-meter"></span></div>
+        <!-- the car's condition (crash damage, car mode only) -->
+        <div class="gauge-health">
+          <span class="gauge-health-label">Condition</span>
+          <div class="gauge-meter" role="meter" aria-label="Car condition" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="hud-health"><span id="hud-health-meter"></span></div>
+        </div>
       </div>
       <div id="camera-switch" class="camera-switch">
         <button id="cam-prev" class="icon-btn" type="button" title="Previous camera" aria-label="Previous camera">
@@ -600,11 +628,11 @@
         </section>
         <section class="help-sec" data-help-mode="car">
           <h3><svg class="icon icon-sm" aria-hidden="true"><use href="#i-car"/></svg>Drive <kbd>2</kbd></h3>
-          <ul><li><kbd>W</kbd> Accelerate · <kbd>S</kbd> Brake / reverse</li><li><kbd>A</kbd><kbd>D</kbd> Steer</li><li><kbd>Shift</kbd> Boost · traffic drives on the right</li></ul>
+          <ul><li><kbd>W</kbd> Accelerate · <kbd>S</kbd> Brake / reverse</li><li><kbd>A</kbd><kbd>D</kbd> Steer · <kbd>Space</kbd> Handbrake</li><li><kbd>Shift</kbd> Floor it · traffic drives on the right</li><li><kbd>B</kbd> Horn</li></ul>
         </section>
         <section class="help-sec" data-help-mode="cyclist">
           <h3><svg class="icon icon-sm" aria-hidden="true"><use href="#i-bike"/></svg>Cycle <kbd>3</kbd></h3>
-          <ul><li><kbd>W</kbd> Pedal · <kbd>S</kbd> Brake</li><li><kbd>A</kbd><kbd>D</kbd> Lean &amp; turn</li><li><kbd>Shift</kbd> Sprint</li></ul>
+          <ul><li><kbd>W</kbd> Pedal · <kbd>S</kbd> Brake</li><li><kbd>A</kbd><kbd>D</kbd> Lean &amp; turn</li><li><kbd>Shift</kbd> Sprint · <kbd>B</kbd> Bell</li></ul>
         </section>
         <section class="help-sec" data-help-mode="helicopter">
           <h3><svg class="icon icon-sm" aria-hidden="true"><use href="#i-heli"/></svg>Fly <kbd>4</kbd></h3>
@@ -612,7 +640,7 @@
         </section>
         <section class="help-sec help-keys">
           <h3><svg class="icon icon-sm" aria-hidden="true"><use href="#i-camera"/></svg>Look &amp; view</h3>
-          <ul><li>Drag to orbit · scroll to zoom</li><li><kbd>V</kbd> Next camera · <kbd>5</kbd>–<kbd>0</kbd> Cameras &amp; sights</li><li><kbd>H</kbd> Clean view · <kbd>?</kbd> This help</li></ul>
+          <ul><li>Drag to orbit · scroll to zoom</li><li><kbd>V</kbd> Next camera · <kbd>5</kbd>–<kbd>0</kbd> Cameras &amp; sights</li><li><kbd>H</kbd> Clean view · <kbd>?</kbd> This help</li><li><kbd>N</kbd> Sound on / off</li></ul>
         </section>
       </div>
       <p class="help-foot">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a> (ODbL) and City of Toronto Open Data (Open Government Licence – Toronto). Built on <a href="https://github.com/mrdoob/slop-newyork" target="_blank" rel="noopener noreferrer">Slop New York</a> by mrdoob and Abuja Tour (MIT). <a href="./index.html#credits">All credits</a>. Name boards show each place's name, not its trademarked logo. <span class="help-fps">three.js WebGPU · <span id="hud-fps" class="fps-ok">60</span> fps</span></p>

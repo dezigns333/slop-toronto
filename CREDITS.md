@@ -9,6 +9,17 @@ License (`LICENSE`). Third-party code, data and assets keep their own licences, 
   https://github.com/mrdoob/slop-newyork
 - **Abuja Tour** (abujatour.site), the Slop New York fork this was forked from, including the landing page's layout
   and styles (`css/landing.css`). MIT, © Mr.doob.
+  Later Slop New York work ported onto it (to upstream 1b54e16): gamepad controls (`js/gamepad-controls.js`),
+  pedestrians' connected routes & conversations (`js/pedestrian-routes.js`), vehicle bumpers & lamps, fire escapes,
+  corner collisions, bicycle coasting, restored visits, traffic that stays populated, SSR & road-marking fixes.
+- **aalghooneh/slop-toronto** by aalghooneh, another Toronto fork of Slop New York: the car's powertrain, arcade
+  handling & handbrake, crash damage, and the pedestrians knocked down as ragdolls (`PersonRagdoll` in
+  `js/pedestrians.js`, the knock-downs in `js/traffic.js`, the driving in `js/controllers.js`). MIT, © Mr.doob & Slop
+  Toronto contributors.
+  https://github.com/aalghooneh/slop-toronto
+- **City audio** (`js/audio-*.js`): mrdoob's synthesized spatial audio from Slop New York (MIT, above), with the
+  player car's tyre squeal and engine revs from aalghooneh's slop-toronto fork (MIT, © Slop Toronto contributors).
+  https://github.com/aalghooneh/slop-toronto. Every sound is synthesized in code; no recordings.
 - **three.js**, WebGPURenderer and TSL, loaded from jsDelivr at a pinned dev-branch commit. MIT.
   https://threejs.org/
 - **Stylized water** (`js/stylized-water.js`, built from `vendor/stylized-water`): John Fewell's three.js port of
@@ -18,6 +29,17 @@ License (`LICENSE`). Third-party code, data and assets keep their own licences, 
   LICENSE. Built on **@takram/three-atmosphere** and **@takram/three-geospatial** (MIT, © takram).
 - **EZ-Tree** by Dan Greenheck: procedural trees. MIT. https://github.com/dgreenheck/ez-tree
 - **lil-gui** (loaded only for the `?waterTune` tuning panel). MIT.
+- **aalghooneh/slop-toronto** by aalghooneh, another Toronto fork of Slop New York. MIT.
+  https://github.com/aalghooneh/slop-toronto. Ported from it, adapted to this city's scripts and data:
+  - the TTC streetcars (`js/streetcars.js`: track chaining & direction of travel, stops, signals, queuing, the Flexity
+    Outlook model & livery) and the traffic keeping behind them (the streetcars block in `js/traffic.js`), the paved
+    rights-of-way (`js/city-grid.js`);
+  - the Union Station Rail Corridor's ballast and rails (`js/rail-corridor.js`; the GO trains are this project's own);
+  - the rest of Toronto around the detailed city (`js/surroundings.js`): the procedural ground on the terrain, the
+    land-use map, the far house rows, mid-rise & high-rise clusters, the Hearn's stack, Casa Loma, Gibraltar Point's
+    lighthouse;
+  - the facade colours measured from Wikimedia Commons photos: `tools/commons-palette.py`,
+    `tools/data/commons_palette.json` (used in `js/buildings.js`) and the photo credits below.
 
 ## Map and city data
 
@@ -25,11 +47,15 @@ License (`LICENSE`). Third-party code, data and assets keep their own licences, 
   (https://open.toronto.ca/open-data-license/): 3D Massing, Topographic Mapping – Edge of Roadway, Street Tree Data,
   Water Hydrants, Bicycle Parking, Street Furniture – Transit Shelter, Street Furniture – Litter Receptacle.
   Contains information licensed under the Open Government Licence – Toronto.
-- **OpenStreetMap**: streets, places, water and land use. © OpenStreetMap contributors, under the Open Database
+- **OpenStreetMap**: streets, places, water and land use, the streetcar & railway tracks and the streetcar stops. © OpenStreetMap contributors, under the Open Database
   License (ODbL). https://www.openstreetmap.org/copyright
   The city database built from it, `js/toronto-geodata.js` (by `tools/build-geodata.mjs`), is a derivative database
   and is made available under the ODbL 1.0 (https://opendatacommons.org/licenses/odbl/1-0/), not the MIT License.
 - **AWS Terrain Tiles** (Mapzen "terrarium" tiles, SRTM-derived elevation). https://registry.opendata.aws/terrain-tiles/
+- **Wikimedia Commons photos** of Toronto's buildings: the facade base colours (`tools/data/commons_palette.json`) were
+  measured from 384 freely licensed photos (CC0, public domain, CC BY, CC BY-SA). The photos are not in this
+  repository; each is credited with its author, licence and link in
+  [`tools/data/commons_photos.md`](tools/data/commons_photos.md).
 
 ## Models and textures
 
