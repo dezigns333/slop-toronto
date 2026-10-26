@@ -132,12 +132,17 @@ async function initApp() {
   markInit('trees');
   // John's hydrants, bike rings & post boxes where the City says they stand (street-props.js)
   await window.CITY.buildStreetProps(scene);
+  // the flexi-posts on the cycle tracks' separators (cycling.js)
+  if (window.CITY.buildBikePosts) window.CITY.buildBikePosts(scene);
   // the City's park name signs at the parks' entrances, each with its park's name & address (park-signs.js)
   if (window.CITY.buildParkSigns) {
     const parkSigns = await window.CITY.buildParkSigns(scene);
     allColliders.push(...parkSigns.colliders);
     if (parkSigns.textures) uploadedTextures.push(...parkSigns.textures);
   }
+  // Bike Share Toronto's stations, docks, pay stations & (live) bikes (bike-share.js)
+  const bikeShare = window.CITY.buildBikeShare ? await window.CITY.buildBikeShare(scene) : null;
+  if (bikeShare) allColliders.push(...bikeShare.colliders);
   // Yonge & Dundas: the screens round Sankofa Square (yonge-dundas.js)
   window.CITY.buildYongeDundas(scene);
   markInit('streetProps');
@@ -149,9 +154,13 @@ async function initApp() {
     ...allColliders.filter((c) => !c.obb && !c.polygon) // (nor the landmarks' drawn outlines: js/world-collision.js)
   ]);
   markInit('traffic');
+  // the people's heads at every crosswalk, the midblock signals & the pedestrian crossovers (pedestrian-signals.js)
+  if (window.CITY.buildPedestrianSignals) window.CITY.buildPedestrianSignals(scene, trafficSystem, streetDetails.signalClock);
   const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
   // --- Toronto layer (after aalghooneh/slop-toronto): the TTC's streetcars, which the traffic keeps behind ---
   const streetcars = window.CITY.createStreetcars(scene, trafficSystem);
+  // the TTC's buses on their routes (transit-buses.js), in place of roaming ones
+  const transitBuses = window.CITY.createTransitBuses ? window.CITY.createTransitBuses(trafficSystem) : null;
   // the Union Station Rail Corridor's tracks & GO trains (rail-corridor.js)
   const railCorridor = window.CITY.createRailCorridor(scene, trafficSystem);
   allColliders.push(...railCorridor.colliders); // the raised tracks' embankments (the player's only)
@@ -209,7 +218,7 @@ async function initApp() {
 
   // City-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['CityGround', 'CityBuildings', 'CityStreetDetails', 'CityStreetProps', 'CityParkSigns', 'CityLandmarks', 'Terrain']
+  const cullingRoots = ['CityGround', 'CityBuildings', 'CityStreetDetails', 'CityStreetProps', 'CityParkSigns', 'CityBikeShare', 'CityLandmarks', 'Terrain']
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   const cullingStats = setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
@@ -446,6 +455,8 @@ async function initApp() {
 
   function selectTime(timeId) {
     lightingSystem.applyPreset(timeId);
+    if (trafficSystem.setHour && window.CITY.SUN_HOURS[timeId] !== undefined) trafficSystem.setHour(window.CITY.SUN_HOURS[timeId]); // (the City's volumes at that hour)
+    if (window.CITY.TRANSIT) window.CITY.TRANSIT.setTime(timeId); // the TTC's headways for that hour (transit.js)
     colorGrade.applyPreset(lightingSystem.activePresetId);
     timeButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-time') === timeId);
@@ -801,6 +812,7 @@ async function initApp() {
     trafficSystem,
     highwayTraffic,
     streetcars, // Toronto layer
+    transitBuses, // Toronto layer
     railCorridor, // Toronto layer
     subway, // Toronto layer
     controllerManager,
@@ -1018,6 +1030,7 @@ async function initApp() {
       nextPlayerSave = now + 5000;
     }
     streetcars.update(dt, elapsed, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode); // Toronto layer
+    if (transitBuses) transitBuses.update(dt); // Toronto layer
     railCorridor.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode); // Toronto layer
     subway.update(elapsed, cameraSystem.camera); // Toronto layer
     cityBlocks.update(cameraSystem.currentPos.x, cameraSystem.currentPos.z);
@@ -1038,6 +1051,7 @@ async function initApp() {
     renderCarCondition();
     cityAudio.update(dt, elapsed);
     if (warmedUp) updateSceneCulling(cameraSystem.camera.position); // the warm-up frame draws every chunk
+    if (warmedUp && bikeShare) bikeShare.update(cameraSystem.camera.position); // the nearby stations' bikes
 
     // The pooled street, head & police lights that are off (intensity 0, parked underground) leave the clustered
     // lighting's list, so by day its per-frame cluster pass has no lights to sort and test

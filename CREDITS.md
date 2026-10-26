@@ -53,9 +53,33 @@ License (`LICENSE`). Third-party code, data and assets keep their own licences, 
 
 - **City of Toronto Open Data**, under the Open Government Licence – Toronto
   (https://open.toronto.ca/open-data-license/): 3D Massing, Topographic Mapping – Edge of Roadway, Street Tree Data,
-  Water Hydrants, Bicycle Parking, Street Furniture – Transit Shelter, Street Furniture – Litter Receptacle.
+  Water Hydrants, Bicycle Parking, Street Furniture – Transit Shelter, Street Furniture – Litter Receptacle, Cycling
+  Network (the bike lanes, cycle tracks, sharrows & multi-use trails: `tools/fetch-cycling.mjs`, `js/cycling.js`).
   Contains information licensed under the Open Government Licence – Toronto.
+- **City of Toronto Open Data, traffic & pedestrians**, under the Open Government Licence – Toronto
+  (https://open.toronto.ca/open-data-license/): Traffic Signals Tabular (the traffic signals, pedestrian crossovers and
+  flashing beacons, their modes of control, pedestrian walking speeds and leading pedestrian intervals), Pedestrian
+  Network (the crosswalks), Traffic Volumes – Multimodal Intersection Turning Movement Counts, Traffic Volumes –
+  Midblock Vehicle Speed, Volume and Classification Counts, and Traffic Signal Vehicle and Pedestrian Volumes; Traffic
+  Signal Timing was read but not used (it carries no cycle lengths or splits). `js/toronto-traffic-data.js` is built
+  from them by `tools/fetch-opendata.mjs` and `tools/build-traffic-data.mjs`. It is keyed to the OpenStreetMap road graph
+  below (each street's volume, the junctions each signal controls), so like `js/toronto-geodata.js` it is also made
+  available under the ODbL 1.0. Contains information licensed under the Open Government Licence – Toronto.
+- **TTC timetable**: "Merged GTFS – TTC Routes and Schedules" (the Toronto Transit Commission's GTFS, all modes) from
+  City of Toronto Open Data, under the Open Government Licence – Toronto
+  (https://open.toronto.ca/dataset/merged-gtfs-ttc-routes-and-schedules/). `js/toronto-transit.js` (by
+  `tools/build-transit.mjs`, fetched by `tools/fetch-gtfs.mjs`) keeps only the routes' stopping patterns through the
+  city, their stops and trips per hour on a weekday; the streetcars, buses and Line 2 trains run at those headways.
+  Contains information licensed under the Open Government Licence – Toronto.
+  Water Hydrants, Bicycle Parking, Street Furniture – Transit Shelter, Street Furniture – Litter Receptacle, Bike Share
+  Toronto. Contains information licensed under the Open Government Licence – Toronto.
+- **Bike Share Toronto** (Toronto Parking Authority): the stations' places, sizes and live bike counts come from its
+  GBFS feeds (station_information, baked into `js/bike-share-stations.js` by `tools/geo-bikeshare.mjs`; station_status,
+  read by the browser once a minute), as published through the City of Toronto's Open Data "Bike Share Toronto" dataset
+  under the Open Government Licence – Toronto. https://open.toronto.ca/dataset/bike-share-toronto/
 - **OpenStreetMap**: streets, places, water and land use, the streetcar & railway tracks and the streetcar stops. © OpenStreetMap contributors, under the Open Database
+- **OpenStreetMap**: streets, places, water and land use, the streetcar & railway tracks and the streetcar stops, and
+  which side of the street each bikeway is on (cycleway tags). © OpenStreetMap contributors, under the Open Database
   License (ODbL). https://www.openstreetmap.org/copyright
   The city database built from it, `js/toronto-geodata.js` (by `tools/build-geodata.mjs`), is a derivative database
   and is made available under the ODbL 1.0 (https://opendatacommons.org/licenses/odbl/1-0/), not the MIT License.
@@ -81,6 +105,11 @@ License (`LICENSE`). Third-party code, data and assets keep their own licences, 
   ID Sign") and Street View (`tools/blender/bake_props.py ttc-pylon`). TTC logo and subway signage design: Toronto
   Transit Commission (trademark), used to depict the real street signage; logo file supplied by John. The station
   names, lines and accessibility are from OpenStreetMap.
+- **Bike Share Toronto station** (`assets/props/bike-share-dock.glb`, `bike-share-kiosk.glb`, `bike-share-bike.glb`):
+  the dock, the pay station and the PBSC "Iconic" city bike in the system's 2026 orange, modelled in Blender from
+  measured Street View references (Queens Quay & Yonge, York & Queens Quay, Fort York & Capreol, Euclid & Bloor) and
+  Nano Banana Pro (Gemini) reference views (`tools/blender/bikeshare_props.py`), without the sponsor's lettering. Dock,
+  kiosk and bike design: PBSC Urban Solutions / Bike Share Toronto, depicted as they stand in the street.
 - **TTC subway lantern** (`assets/props/ttc-lantern.glb`): the TTC's older square lit "TTC" lantern on its stainless
   pole (on the pole's top, or hung from an arm), at the entrances that still have one, modelled in Blender from
   measured Street View references (Osgoode, Chester, St Patrick; `tools/blender/bake_props.py ttc-lantern`), printed at

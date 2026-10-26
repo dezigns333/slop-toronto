@@ -62,8 +62,11 @@
     await run(30); // the jump places everyone, then they settle
     const last = new Map(), trips = [];
     const tripOf = (v) => last.get(v);
-    const reasons = {};
+    const reasons = {}, why = {};
     let samples = 0, queuedShare = 0, stoppedShare = 0, pedWaits = [], pedState = new Map(), sumStop = 0, sumKm = 0;
+    // people crossing: each step off a kerb onto a junction crosswalk (p.node) or a midblock crossing (p.mid)
+    const onCrossing = new Map();
+    let crossings = 0, midCrossings = 0, placedSum = 0, carSum = 0, carSamples = 0;
     await run(seconds, (i) => {
       for (const v of vehicles()) {
         if (!v.edge) continue;
@@ -93,7 +96,17 @@
           else if (e.to.signal) r = stateOf(e, elapsed) === 'green' ? 'front-green-blocked' : 'front-red';
           else r = 'front-unsignalised';
           reasons[r] = (reasons[r] || 0) + 1;
+          // (and for the first in line, why it doesn't go: traffic.js whyWaiting)
+          if (T.whyWaiting && v.gap >= 6) {
+            const w = T.whyWaiting(v);
+            why[w] = (why[w] || 0) + 1;
+          }
         }
+      }
+      if (i % 30 === 0) {
+        placedSum += T.peds.filter((p) => p.placed).length;
+        carSum += T.cars.filter((c) => c.edge).length;
+        carSamples++;
       }
       if (i % 15 === 0) {
         let act = 0, q = 0, st = 0;
@@ -106,6 +119,10 @@
         if (act) { samples++; queuedShare += q / act; stoppedShare += st / act; }
       }
       for (const p of T.peds) {
+        const track = p.placed && (p.node || p.mid);
+        const on = !!track && p.t > 2.2 && p.t < p.len - 2.2;
+        if (on && !onCrossing.get(p)) { if (p.mid) midCrossings++; else crossings++; }
+        onCrossing.set(p, on);
         const s = pedState.get(p);
         const w = !!(p.placed && p.waiting);
         if (w && !s) pedState.set(p, { t: elapsed, node: p.node, x: p.x, z: p.z });
@@ -117,7 +134,7 @@
     });
     for (const tr of last.values()) if (tr.km > 0.3) trips.push(tr.stop / tr.km);
     const placed = T.peds.filter((p) => p.placed);
-    log({ kind: 'fleet', spot: spot.name, seed, seconds, cars: T.cars.length, buses: T.buses.length, active: vehicles().filter((v) => v.edge).length, peds: placed.length, pedsAtCrossings: placed.filter((p) => p.node).length, stopPerKm: sumStop / Math.max(1e-6, sumKm), tripMean: mean(trips), tripP95: pct(trips, 0.95), trips: trips.length, km: sumKm, queuedAtRed: queuedShare / samples, stopped: stoppedShare / samples, pedWaitMean: mean(pedWaits), pedWaitP95: pct(pedWaits, 0.95), pedWaits: pedWaits.length, updateMs: updateMs / updates, reasons });
+    log({ kind: 'fleet', spot: spot.name, seed, seconds, cars: T.cars.length, buses: T.buses.length, active: vehicles().filter((v) => v.edge).length, peds: placed.length, pedsAtCrossings: placed.filter((p) => p.node).length, stopPerKm: sumStop / Math.max(1e-6, sumKm), tripMean: mean(trips), tripP95: pct(trips, 0.95), trips: trips.length, km: sumKm, queuedAtRed: queuedShare / samples, stopped: stoppedShare / samples, pedWaitMean: mean(pedWaits), pedWaitP95: pct(pedWaits, 0.95), pedWaits: pedWaits.length, updateMs: updateMs / updates, reasons, why, crossingsPerMin: (crossings / seconds) * 60, midCrossingsPerMin: (midCrossings / seconds) * 60, carsMean: carSum / Math.max(1, carSamples), pedsMean: placedSum / Math.max(1, carSamples) });
     updateMs = 0; updates = 0;
   }
 
@@ -139,7 +156,9 @@
     Math.random = mulberry(seed);
     elapsed = 5000 + seed * 9.3;
     const { from, to, ux, uz } = route;
-    const e0 = edgeInto(from[0], from[1], ux, uz);
+    // (the first edge arriving at a junction from the start on, along the route, within 200 m)
+    let e0 = null;
+    for (let k = 0; k <= 10 && !e0; k++) e0 = edgeInto(from[0] + ux * 20 * k, from[1] + uz * 20 * k, ux, uz);
     if (!e0) return log({ kind: 'probe', route: route.name, seed, error: 'no start edge' });
     aim(from[0] - ux * 60, from[1] - uz * 60);
     await run(20);
@@ -165,7 +184,7 @@
     const lat = (x, z) => (x - from[0]) * -uz + (z - from[1]) * ux;
     const u0 = u(from[0], from[1]), u1 = u(to[0], to[1]);
     let tStart = null, tEnd = null, stops = 0, stopped = false, stopT = 0, off = false, lastEdge = v.edge;
-    const limit = route.limit || 1500;
+    const limit = route.limit || 900; // (s: slower than ~10 km/h over the route is a DNF)
     for (let i = 0; i < limit / DT && tEnd === null; i++) {
       aim(v.x, v.z);
       step();
@@ -198,10 +217,12 @@
     const s = e.len - 3;
     const ent = { position: { x: e.sx + e.dx * s + e.rx * lane, y: 0.0, z: e.sz + e.dz * s + e.rz * lane }, heading: Math.atan2(e.dx, e.dz), speed: 0, vx: 0, vz: 0, type: 'car' };
     const waits = [];
-    for (let k = 0; k < trials; k++) {
+    let greens = 0, attempts = 0;
+    for (let k = 0; k < trials && attempts < trials * 4; k++) {
+      attempts++;
       // away for a while, then arrive at the line
       await run(5 + Math.random() * 60);
-      if (stateOf(e, elapsed) === 'green') { k--; continue; } // arrived on a green: no wait
+      if (stateOf(e, elapsed) === 'green') { greens++; k--; continue; } // arrived on a green: no wait (counted apart)
       let w = 0;
       while (stateOf(e, elapsed) !== 'green' && w < 180) {
         ent.position.x = e.sx + e.dx * s + e.rx * lane; ent.position.z = e.sz + e.dz * s + e.rz * lane;
@@ -212,7 +233,7 @@
       waits.push(w);
       await yieldUI();
     }
-    log({ kind: 'rider', spot: spot.name, seed, waits: waits.map((w) => +w.toFixed(1)), mean: mean(waits), max: Math.max(...waits) });
+    log({ kind: 'rider', spot: spot.name, seed, waits: waits.map((w) => +w.toFixed(1)), mean: mean(waits), max: waits.length ? Math.max(...waits) : null, arrivals: attempts, onGreen: greens });
   }
 
   window.__trafficEdges = (pts) => {
@@ -237,16 +258,20 @@
     const routes = [
       { name: 'king-east', from: [-1751, -361], to: [836, -349], ux: 1, uz: 0 },
       { name: 'king-west', from: [836, -349], to: [-1751, -361], ux: -1, uz: 0 },
-      { name: 'bay-north', from: [137, -41], to: [88, -2805], ux: -0.0177, uz: -0.9998 },
-      { name: 'bay-south', from: [88, -2805], to: [137, -41], ux: 0.0177, uz: 0.9998 }
+      // (Bay in two sections: at Queen the road graph has no straight-on move, the probe would be turned off Bay)
+      { name: 'bay-north', from: [137, -41], to: [131, -690], ux: -0.0177, uz: -0.9998 },
+      { name: 'bay-south', from: [131, -690], to: [137, -41], ux: 0.0177, uz: 0.9998 },
+      { name: 'bay-north-upper', from: [126, -790], to: [88, -2805], ux: -0.0177, uz: -0.9998 },
+      { name: 'bay-south-upper', from: [88, -2805], to: [126, -790], ux: 0.0177, uz: 0.9998 }
     ];
-    if (opts.probe !== false) for (const r of routes) for (const seed of opts.probeSeeds || [11, 12, 13, 14]) await probe(r, seed);
     const riders = [
       { name: 'strachan-sb-at-lakeshore', x: -2522, z: 482, ux: 0, uz: 1 },
       { name: 'strachan-nb-at-manitoba', x: -2531, z: 295, ux: 0, uz: -1 },
       { name: 'lakeshore-eb-at-strachan', x: -2522, z: 482, ux: 1, uz: 0 }
     ];
     if (opts.rider !== false) for (const seed of opts.riderSeeds || [21]) for (const r of riders) await rider(r, opts.trials || 8, seed);
+    // (the probes last: a gridlocked one takes its whole limit)
+    if (opts.probe !== false) for (const r of routes) for (const seed of opts.probeSeeds || [11, 12, 13, 14]) await probe(r, seed);
     log({ kind: 'done', wallSeconds: (performance.now() - t0) / 1000 });
     app.film.stop();
   };

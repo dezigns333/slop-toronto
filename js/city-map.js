@@ -226,6 +226,14 @@ function mapLayers() {
     return { path, width: d.w + 1.2 };
   });
 
+  // Toronto's cycling network (cycling.js), by kind, the cycle tracks on top
+  L.bikeways = [];
+  for (const l of window.CITY.BIKE_MAP_LINES || []) {
+    let b = L.bikeways[L.bikeways.length - 1];
+    if (!b || b.kind !== l.kind) L.bikeways.push((b = { kind: l.kind, style: l.style, layer: new TiledLayer(1000) }));
+    b.layer.line(l.flat);
+  }
+
   // Landmark outlines
   L.landmarks = new Path2D();
   for (const id of MODELLED_LANDMARKS) {
@@ -953,6 +961,16 @@ class CityMapSystem {
     }
     ctx.lineCap = 'round';
 
+    // 9b. The cycling network, coloured like the City's cycling map
+    for (const b of L.bikeways) {
+      const [col, w, dash] = b.style;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(px((isMinimap ? 2.6 : 2.2) * w), 3 * w);
+      ctx.setLineDash(dash ? dash.map((d) => px(d * 2)) : []);
+      b.layer.each(v, (p) => ctx.stroke(p));
+    }
+    ctx.setLineDash([]);
+
     // 10. Search highlight: every stretch of the matching streets
     if (this.searchPath && !isMinimap) {
       ctx.strokeStyle = MAP.search;
@@ -1115,6 +1133,7 @@ class CityMapSystem {
       ctx.fillStyle = 'rgba(226, 232, 240, 0.34)';
       for (let i = 0; i < this.trafficSystem.cars.length; i += 2) {
         const car = this.trafficSystem.cars[i];
+        if (!car.edge) continue; // (a car off the streets: traffic.js keeps as many as the streets hold)
         const cx = toX(car.x);
         const cy = toY(car.z);
         if (Math.abs(cx) < w * 0.5 && Math.abs(cy) < h * 0.5) {

@@ -1,0 +1,9 @@
+[
+ {
+  "name": "crosswalk-diag",
+  "mode": "helicopter",
+  "time": "midday",
+  "wait": 12000,
+  "js": "(() => { const T = window.__CITY_APP.trafficSystem, R = T.pedRoutes; const st = R.stats; const hist = {}; for (const f of st.blockedAt) { const k = f < 0.15 ? 'start' : f > 0.85 ? 'end' : 'middle'; hist[k] = (hist[k] || 0) + 1; } console.log('[diag] ' + JSON.stringify({ ...st, blockedAt: hist })); })()"
+ }
+]

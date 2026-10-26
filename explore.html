@@ -32,16 +32,20 @@
   <script>
     // Download the city scripts while Three.js loads; execute them only after its imports are ready below.
     const cityAppScripts = (() => {
-      const assetVersion = '20261025-wrapup2';
+      const assetVersion = '20261026-opendata1';
       return [
         './js/quality.js',
         './js/toronto-geodata.js',
         './js/toronto-subway.js',
+        './js/toronto-traffic-data.js',
+        './js/toronto-transit.js',
+        './js/transit.js',
         './js/city-config.js',
         './js/toronto-signal-plan.js',
         './js/signal-plan.js',
         './js/world-collision.js',
         './js/tsl-materials.js',
+        './js/cycling.js',
         './js/trees.js',
         './js/actor-models.js',
         './js/vehicle-lights.js',
@@ -58,13 +62,17 @@
         './js/street-details.js',
         './js/street-props.js',
         './js/park-signs.js',
+        './js/bike-share-stations.js',
+        './js/bike-share.js',
         './js/yonge-dundas.js',
         './js/ez-trees.js',
         './js/road-network.js',
         './js/road-paint.js',
         './js/pedestrian-routes.js',
         './js/traffic.js',
+        './js/pedestrian-signals.js',
         './js/streetcars.js',
+        './js/transit-buses.js',
         './js/rail-corridor.js',
         './js/subway.js',
         './js/ttc-pylons.js',
@@ -103,7 +111,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&amp;family=Overpass:wght@600;700&amp;display=swap" />
-  <link rel="stylesheet" href="./css/style.css?v=20261025-wrapup2" />
+  <link rel="stylesheet" href="./css/style.css?v=20261026-opendata1" />
   <!-- three.js dev branch pinned to commit e27dfa95ae (2026-10-23) via jsDelivr: mrdoob's engine needs dev (it crawls at 1 fps on the 0.186.1 release) -->
   <script type="importmap">
     {
@@ -600,6 +608,10 @@
       <span class="legend-item"><span class="legend-swatch gps-swatch"></span>Route</span>
       <span class="legend-item"><span class="legend-swatch place-swatch"></span>Named place</span>
       <span class="legend-item"><span class="legend-swatch bridge-swatch"></span>Expressway / Flyover</span>
+      <span class="legend-item"><span class="legend-swatch bridge-swatch" style="background:#22b35e"></span>Cycle track</span>
+      <span class="legend-item"><span class="legend-swatch bridge-swatch" style="background:#8fd16a"></span>Bike lane</span>
+      <span class="legend-item"><span class="legend-swatch bridge-swatch" style="background:#c4844a"></span>Trail</span>
+      <span class="legend-item"><span class="legend-swatch bridge-swatch" style="background:#f2a33a"></span>Sharrows</span>
       <span id="fullmap-counts" class="legend-counts"></span>
     </div>
   </section>
